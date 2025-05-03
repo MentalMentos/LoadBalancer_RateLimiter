@@ -1,0 +1,24 @@
+LoadBalancer:
+  address: ":8080"
+
+RateLimiter:
+  type: "token_bucket"
+  limit: 100         # Максимальное количество запросов
+  tokenbucket: "30s" # Интервал пополнения токенов (в секундах)
+
+healthchecker:
+  healthyserver_freq: "10s"    # Проверка здоровых серверов каждые 10 секунд
+  unhealthyserver_freq: "3s"   # Проверка проблемных серверов каждые 3 секунды
+
+Routes:
+  - path: "/api"
+    backends:
+      - url: "http://localhost:8081"
+        health: "/health"
+      - url: "http://localhost:8082"
+        health: "/status"
+
+  - path: "/static"
+    backends:
+      - url: "http://localhost:8083"
+        health: "/ping"
