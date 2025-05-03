@@ -1,4 +1,4 @@
-module github.com/MentalMentos/LoadBalancer-RateLimiter.git
+module lb
 
 go 1.24
 
