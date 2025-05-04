@@ -34,22 +34,28 @@ func NewTokenBucketLimiter(ctx context.Context, limit int, period time.Duration,
 		logger: log,
 	}
 
+	log.Info("Initializing TokenBucketLimiter", zap.Int("limit", limit), zap.Duration("interval", tb.Period))
+
 	tb.tokenBucket["default"] = make(chan struct{}, limit)
 	for i := 0; i < limit; i++ {
 		tb.tokenBucket["default"] <- struct{}{}
 	}
+
+	log.Info("Default token bucket initialized", zap.Int("tokens", limit))
 
 	go tb.StartPeriod(ctx)
 	return tb
 }
 
 func (tb *TokenBucketLimiter) StartPeriod(ctx context.Context) {
+	tb.logger.Info("Token bucket refill started", zap.Duration("period", tb.Period))
 	ticker := time.NewTicker(tb.Period)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			tb.logger.Info("Token bucket refill stopped due to context cancellation")
 			return
 		case <-ticker.C:
 			tb.refillBuckets()
@@ -66,6 +72,7 @@ func (tb *TokenBucketLimiter) refillBuckets() {
 		case bucket <- struct{}{}:
 			tb.logger.Debug("Refilled token for IP", zap.String("ip", ip))
 		default:
+			tb.logger.Debug("Bucket full, skipping refill", zap.String("ip", ip))
 		}
 	}
 }
@@ -77,14 +84,18 @@ func (tb *TokenBucketLimiter) Allow(ip string) bool {
 	if ipBucket, exists := tb.tokenBucket[getIPFromIdentifier(ip)]; exists {
 		select {
 		case <-ipBucket:
+			tb.logger.Debug("Request allowed", zap.String("ip", ip))
 			return true
 		default:
+			tb.logger.Debug("Request denied - no tokens", zap.String("ip", ip))
 			return false
 		}
 	}
 
+	allowed := tb.allowDefault()
 	// Если ничего нет - дефолт значение
-	return tb.allowDefault()
+	tb.logger.Debug("Request fallback to default", zap.String("ip", ip), zap.Bool("allowed", allowed))
+	return allowed
 }
 
 func (tb *TokenBucketLimiter) AddClient(config *ClientConfig) {
@@ -101,9 +112,13 @@ func (tb *TokenBucketLimiter) AddClient(config *ClientConfig) {
 			clients: make(map[string]*ClientConfig),
 		}
 	}
-	
+
 	tb.clientStore.clients[config.Ip] = config
 	tb.tokenBucket[config.Ip] = ch
+
+	tb.logger.Info("Client added to TokenBucketLimiter",
+		zap.String("ip", config.Ip),
+		zap.Int("capacity", config.Capacity))
 
 }
 
@@ -124,6 +139,7 @@ func (tb *TokenBucketLimiter) DeleteClient(clientIp string) {
 		}
 		delete(tb.clientStore.clients, clientIp)
 		delete(tb.tokenBucket, clientIp)
+		tb.logger.Info("Client deleted", zap.String("ip", clientIp))
 	}
 }
 

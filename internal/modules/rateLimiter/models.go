@@ -5,7 +5,7 @@ import (
 )
 
 type ClientConfig struct {
-	Ip       string        `json:"client_id"`
+	Ip       string        `json:"client_ip"`
 	Capacity int           `json:"capacity"`
 	Interval time.Duration `json:"interval"`
 }
