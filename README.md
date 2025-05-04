@@ -29,6 +29,11 @@
 !Входные данные можно посылать как при помощи config файла, так и при помощи http запросов
 (Ниже представлены их примеры)
 
+Для загрузки проекта:
+```sh
+git clone https://github.com/MentalMentos/LoadBalancer_RateLimiter.git
+```
+
 Для запуска проекта:
 ```golang
 go run cmd/app/main.go
