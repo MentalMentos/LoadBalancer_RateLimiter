@@ -1,4 +1,4 @@
-# Тестовое задание для cloud ru "Load Balancer/Rate Limiter"
+# Тестовое задание для cloud ru "Load Balancer/Rate Limiter" на Golang разработчика
 
 
 # Вопросы для разогрева
