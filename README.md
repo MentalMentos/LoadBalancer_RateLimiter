@@ -45,6 +45,7 @@ git clone https://github.com/MentalMentos/LoadBalancer_RateLimiter.git
 
 Для запуска проекта:
 ```golang
+cd LoadBalancer_RateLimiter
 go run cmd/app/main.go
 ```
 ### Установка зависимостей
