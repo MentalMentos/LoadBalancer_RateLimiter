@@ -10,6 +10,8 @@ import (
 )
 
 // ------------------ROUND-ROBIN ------------------
+// RoundRobinAlgorithm реализует классический алгоритм кругового распределения
+// Использует атомарный счетчик
 type RoundRobinAlgorithm struct {
 	current uint32
 }
@@ -18,10 +20,13 @@ func NewRoundRobinStrategy() *RoundRobinAlgorithm {
 	return &RoundRobinAlgorithm{}
 }
 
+// GetNextBackend выбирает следующий бэкенд в ротации
+// Возвращает ошибку если нет доступных бэкендов (принцип fail-fast)
 func (rr *RoundRobinAlgorithm) GetNextBackend(backends []*modelsBackend.Backend) (*modelsBackend.Backend, error) {
 	if len(backends) == 0 {
 		return nil, errors.New("no backends available")
 	}
+	// Атомарное увеличение счетчика с защитой от переполнения
 	index := atomic.AddUint32(&rr.current, 1) - 1
 	return backends[index%uint32(len(backends))], nil
 }
@@ -41,6 +46,10 @@ type Loadbalancer struct {
 	mu                   sync.RWMutex
 }
 
+// NewLoadBalancer конструктор балансировщика
+// registry: источник конфигурации бэкендов
+// healthChannels: каналы обновления статусов
+// logger: настроенный экземпляр логгера
 func NewLoadBalancer(registry *backends.BackendRegistry, healthChannels []<-chan modelsBackend.BackendStatus, logger *zap.Logger) *Loadbalancer {
 	lb := &Loadbalancer{
 		BackendRegistry:      registry,
@@ -54,6 +63,8 @@ func NewLoadBalancer(registry *backends.BackendRegistry, healthChannels []<-chan
 	return lb
 }
 
+// listenToHealthUpdates запускает мониторинг здоровья бэкендов
+// Запускает по горутине на каждый канал обновлений
 func (lb *Loadbalancer) listenToHealthUpdates(wg *sync.WaitGroup) {
 	lb.logger.Info("Listening for health updates in loadbalancer")
 	for _, ch := range lb.healthUpdateChannels {
@@ -68,6 +79,8 @@ func (lb *Loadbalancer) listenToHealthUpdates(wg *sync.WaitGroup) {
 	wg.Wait()
 }
 
+// updateProcess обрабатывает обновления статусов бэкендов
+// Разделяет обработку статусов и управление каналами
 func (lb *Loadbalancer) updateProcess(update modelsBackend.BackendStatus) {
 	if update.IsHealthy {
 		lb.addToHealthyBacks(update.Id)
@@ -77,6 +90,8 @@ func (lb *Loadbalancer) updateProcess(update modelsBackend.BackendStatus) {
 	}
 }
 
+// addToHealthyBacks поддерживает актуальный список здоровых нод
+// Использует мьютекс для защиты от конкурентного доступа
 func (lb *Loadbalancer) addToHealthyBacks(id uint64) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -97,6 +112,8 @@ func (lb *Loadbalancer) addToHealthyBacks(id uint64) {
 	lb.logger.Info("Added healthy backend! Backend id: ", zap.Uint64("id", id))
 }
 
+// removeFromHealthyBackends удаляет нездоровые ноды
+// Использует работу со срезами для эффективного удаления (порядок не сохраняется)
 func (lb *Loadbalancer) removeFromHealthyBackends(backendId uint64) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -110,6 +127,7 @@ func (lb *Loadbalancer) removeFromHealthyBackends(backendId uint64) {
 	}
 }
 
+// getHealthyBackends возвращает текущий список здоровых бэкендов
 func (lb *Loadbalancer) getHealthyBackends() []*modelsBackend.Backend {
 	lb.mu.RLock()
 	defer lb.mu.RUnlock()

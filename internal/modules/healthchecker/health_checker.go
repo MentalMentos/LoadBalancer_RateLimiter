@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// HealthChecker реализует систему мониторинга состояния бэкендов.
+// Использует пул воркеров для асинхронных проверок и поддерживает
+// разные интервалы для здоровых/нездоровых сервисов.
 type HealthChecker struct {
 	serverChan         chan *models.Backend
 	healthyFrequency   time.Duration
@@ -19,6 +22,9 @@ type HealthChecker struct {
 	logger             *zap.Logger
 }
 
+// NewHealthChecker создает экземпляр HealthChecker с настраиваемыми параметрами.
+// healthyFreq: интервал проверок для работающих бэкендов (например, 30s)
+// unhealthyFreq: интервал для повторных проверок упавших сервисов (например, 5s)
 func NewHealthChecker(
 	healthyFreq time.Duration,
 	unhealthyFreq time.Duration,
@@ -36,6 +42,8 @@ func NewHealthChecker(
 	}
 }
 
+// Start запускает пул воркеров для параллельных проверок.
+// Оптимальное количество воркеров зависит от нагрузки и сетевых задержек.
 func (hc *HealthChecker) Start() {
 	numWorkers := 3
 	for i := 0; i < numWorkers; i++ {
@@ -43,11 +51,15 @@ func (hc *HealthChecker) Start() {
 	}
 }
 
+// AddBackend добавляет бэкенд в систему мониторинга.
+// Гарантирует thread-safe добавление через буферизованный канал.
 func (hc *HealthChecker) AddBackend(backend *models.Backend) {
-	hc.logger.Debug("Backend added to health checker", zap.String("url", backend.URL))
+	hc.logger.Info("Backend added to health checker", zap.String("url", backend.URL))
 	hc.serverChan <- backend
 }
 
+// worker - основной цикл обработки проверок для одного воркера.
+// Каждый воркер независимо обрабатывает бэкенды из общего канала.
 func (hc *HealthChecker) worker(id int) {
 	hc.logger.Info("Health check worker started", zap.Int("worker_id", id))
 	for backend := range hc.serverChan {
@@ -55,6 +67,8 @@ func (hc *HealthChecker) worker(id int) {
 	}
 }
 
+// checkBackend выполняет HTTP-проверку состояния бэкенда.
+// Логика проверки может быть расширена для поддержки разных протоколов.
 func (hc *HealthChecker) checkBackend(backend *models.Backend) {
 	healthy := false
 
@@ -68,6 +82,7 @@ func (hc *HealthChecker) checkBackend(backend *models.Backend) {
 
 	hc.updateStatus(backend, healthy)
 
+	// Динамическое планирование следующей проверки
 	var nextCheck time.Duration
 	if healthy {
 		nextCheck = hc.healthyFrequency
@@ -76,13 +91,16 @@ func (hc *HealthChecker) checkBackend(backend *models.Backend) {
 	}
 
 	time.AfterFunc(nextCheck, func() {
-		hc.serverChan <- backend
+		hc.serverChan <- backend // Регистрируем следующую проверку
 	})
 }
 
+// updateStatus атомарно обновляет состояние бэкенда в registry и кэше.
+// Оптимизирует запросы к registry, обновляя только при изменении статуса.
 func (hc *HealthChecker) updateStatus(backend *models.Backend, isHealthy bool) {
 	_, exists := hc.healthySet.Load(backend.Id)
 
+	// Обновляем только при изменении состояния
 	if isHealthy && !exists {
 		hc.healthySet.Store(backend.Id, true)
 		hc.registry.UpdateHealth(models.BackendStatus{Id: backend.Id, IsHealthy: true})

@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+// TokenBucketLimiter реализует алгоритм ограничения запросов "Token Bucket"
+// с поддержкой индивидуальных лимитов для разных клиентов
 type TokenBucketLimiter struct {
 	tokenBucket map[string]chan struct{} //IP -> канал
 	clientStore *ClientStore
@@ -22,6 +24,10 @@ type ClientStore struct {
 	mu      sync.RWMutex
 }
 
+// NewTokenBucketLimiter создает новый экземпляр rate limiter'а
+// ctx - контекст для graceful shutdown
+// limit - дефолтное количество запросов
+// period - период, за который разрешено limit запросов
 func NewTokenBucketLimiter(ctx context.Context, limit int, period time.Duration, log *zap.Logger) *TokenBucketLimiter {
 	interval := period.Nanoseconds() / int64(limit)
 	tb := &TokenBucketLimiter{
@@ -34,19 +40,16 @@ func NewTokenBucketLimiter(ctx context.Context, limit int, period time.Duration,
 		logger: log,
 	}
 
-	log.Info("Initializing TokenBucketLimiter", zap.Int("limit", limit), zap.Duration("interval", tb.Period))
-
 	tb.tokenBucket["default"] = make(chan struct{}, limit)
 	for i := 0; i < limit; i++ {
 		tb.tokenBucket["default"] <- struct{}{}
 	}
 
-	log.Info("Default token bucket initialized", zap.Int("tokens", limit))
-
 	go tb.StartPeriod(ctx)
 	return tb
 }
 
+// StartPeriod запускает периодическое пополнение токенов
 func (tb *TokenBucketLimiter) StartPeriod(ctx context.Context) {
 	tb.logger.Info("Token bucket refill started", zap.Duration("period", tb.Period))
 	ticker := time.NewTicker(tb.Period)
@@ -63,6 +66,7 @@ func (tb *TokenBucketLimiter) StartPeriod(ctx context.Context) {
 	}
 }
 
+// refillBuckets пополняет токены во всех bucket'ах
 func (tb *TokenBucketLimiter) refillBuckets() {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
@@ -77,10 +81,13 @@ func (tb *TokenBucketLimiter) refillBuckets() {
 	}
 }
 
+// Allow проверяет доступность токена для указанного IP
+// Возвращает true если запрос разрешен, false если лимит исчерпан
 func (tb *TokenBucketLimiter) Allow(ip string) bool {
 	tb.mu.RLock()
 	defer tb.mu.RUnlock()
 
+	// Проверяем наличие индивидуального bucket'а для IP
 	if ipBucket, exists := tb.tokenBucket[getIPFromIdentifier(ip)]; exists {
 		select {
 		case <-ipBucket:
@@ -98,21 +105,25 @@ func (tb *TokenBucketLimiter) Allow(ip string) bool {
 	return allowed
 }
 
+// AddClient добавляет нового клиента с индивидуальными настройками лимита
 func (tb *TokenBucketLimiter) AddClient(config *ClientConfig) {
 	tb.clientStore.mu.Lock()
 	defer tb.clientStore.mu.Unlock()
 
+	// Создаем bucket с указанной емкостью
 	ch := make(chan struct{}, config.Capacity)
 	for i := 0; i < config.Capacity; i++ {
 		ch <- struct{}{}
 	}
 
+	// Инициализируем хранилище если оно nil (на всякий случай)
 	if tb.clientStore == nil {
 		tb.clientStore = &ClientStore{
 			clients: make(map[string]*ClientConfig),
 		}
 	}
 
+	// Сохраняем клиента
 	tb.clientStore.clients[config.Ip] = config
 	tb.tokenBucket[config.Ip] = ch
 
@@ -122,6 +133,7 @@ func (tb *TokenBucketLimiter) AddClient(config *ClientConfig) {
 
 }
 
+// GetClient возвращает конфигурацию клиента по IP
 func (tb *TokenBucketLimiter) GetClient(clientIp string) (*ClientConfig, bool) {
 	tb.clientStore.mu.RLock()
 	defer tb.clientStore.mu.RUnlock()
@@ -129,6 +141,7 @@ func (tb *TokenBucketLimiter) GetClient(clientIp string) (*ClientConfig, bool) {
 	return client, exists
 }
 
+// DeleteClient удаляет клиента и его bucket
 func (tb *TokenBucketLimiter) DeleteClient(clientIp string) {
 	tb.clientStore.mu.Lock()
 	defer tb.clientStore.mu.Unlock()
@@ -143,6 +156,7 @@ func (tb *TokenBucketLimiter) DeleteClient(clientIp string) {
 	}
 }
 
+// ListClients возвращает список всех клиентов
 func (tb *TokenBucketLimiter) ListClients() []*ClientConfig {
 	tb.clientStore.mu.RLock()
 	defer tb.clientStore.mu.RUnlock()
@@ -154,6 +168,7 @@ func (tb *TokenBucketLimiter) ListClients() []*ClientConfig {
 	return clients
 }
 
+// allowDefault проверяет доступность токена в дефолтном bucket'е
 func (tb *TokenBucketLimiter) allowDefault() bool {
 	select {
 	case <-tb.tokenBucket["default"]:
@@ -163,6 +178,7 @@ func (tb *TokenBucketLimiter) allowDefault() bool {
 	}
 }
 
+// getIPFromIdentifier извлекает IP из идентификатора
 func getIPFromIdentifier(identifier string) string {
 	if strings.Contains(identifier, ".") || strings.Contains(identifier, ":") {
 		return identifier

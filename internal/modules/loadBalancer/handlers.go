@@ -18,6 +18,8 @@ import (
 	"time"
 )
 
+// LoadBalancerHandler обрабатывает входящие HTTP-запросы, распределяя нагрузку между бэкендами.
+// Реализует механизм повторных попыток, кэширование соединений и буферизацию ответов.
 type LoadBalancerHandler struct {
 	lb         Loadbalancer
 	client     *http.Client
@@ -26,18 +28,21 @@ type LoadBalancerHandler struct {
 	logger     *zap.Logger
 }
 
+// NewLBHandler создает новый обработчик балансировщика нагрузки.
+// registry - реестр бэкендов для мониторинга их состояния
+// healthChannels - каналы для получения обновлений о состоянии бэкендов
 func NewLBHandler(registry *backends.BackendRegistry, healthChannels []<-chan models.BackendStatus, logger *zap.Logger) *LoadBalancerHandler {
 	return &LoadBalancerHandler{
 		lb:     *NewLoadBalancer(registry, healthChannels, logger),
 		logger: logger,
 		client: &http.Client{
 			Transport: &http2.Transport{
-				AllowHTTP: true,
+				AllowHTTP: true, // Поддержка HTTP/2 без TLS (H2C)
 				DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
 					return net.Dial(network, addr)
 				},
 			},
-			Timeout: 10 * time.Second,
+			Timeout: 10 * time.Second, // Глобальный таймаут для запросов к бэкенда
 		},
 		bufferPool: &sync.Pool{
 			New: func() interface{} {
@@ -47,41 +52,52 @@ func NewLBHandler(registry *backends.BackendRegistry, healthChannels []<-chan mo
 	}
 }
 
+// ServeHTTP - основной обработчик HTTP-запросов, реализующий интерфейс http.Handler.
+// Обрабатывает каждый входящий запрос, выбирает бэкенд и проксирует запрос.
 func (h *LoadBalancerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	startTime := time.Now()
 
+	// Получаем список доступных бэкендов
 	backends := h.lb.getHealthyBackends()
 	if len(backends) == 0 {
 		h.handleError(w, r, errors.New("no healthy backends available"), http.StatusServiceUnavailable, startTime)
 		return
 	}
 
+	// Выбираем бэкенд по заданному алгоритму балансировки
 	backend, err := h.lb.Algorithm.GetNextBackend(backends)
 	if err != nil {
 		h.handleError(w, r, err, http.StatusServiceUnavailable, startTime)
 		return
 	}
 
+	// Проксируем запрос к выбранному бэкенду
 	h.proxyRequest(ctx, w, r, backend, startTime)
 }
 
+// proxyRequest выполняет проксирование запроса к указанному бэкенду
+// с поддержкой повторных попыток и обработкой ошибок.
 func (h *LoadBalancerHandler) proxyRequest(ctx context.Context, w http.ResponseWriter, r *http.Request, backend *models.Backend, startTime time.Time) {
+	// Собираем целевой URL, сохраняя путь и параметры исходного запроса
 	targetURL := buildTargetURL(backend.URL, r.URL.Path, r.URL.RawQuery)
 
+	// Клонируем запрос, так как тело можно прочитать только один раз
 	req, body, err := cloneRequest(r, targetURL)
 	if err != nil {
 		h.handleError(w, r, err, http.StatusInternalServerError, startTime)
 		return
 	}
 
+	// Выполняем запрос с механизмом повторных попыток
 	resp, err := h.executeWithRetries(ctx, req, body, 3)
 	if err != nil {
 		h.handleError(w, r, err, http.StatusBadGateway, startTime)
 		return
 	}
 	defer resp.Body.Close()
-	
+
+	// Копируем ответ бэкенда клиенту
 	h.copyResponse(w, resp)
 
 	h.logger.Debug("Request proxied successfully",
@@ -91,11 +107,14 @@ func (h *LoadBalancerHandler) proxyRequest(ctx context.Context, w http.ResponseW
 	)
 }
 
+// executeWithRetries выполняет запрос с экспоненциальной задержкой между попытками.
+// Не повторяет запросы при клиентских ошибках (4xx), кроме 429 (Too Many Requests).
 func (h *LoadBalancerHandler) executeWithRetries(ctx context.Context, req *http.Request, body []byte, maxRetries int) (*http.Response, error) {
 	var resp *http.Response
 	var err error
 
 	for i := 0; i < maxRetries; i++ {
+		// Восстанавливаем тело запроса для каждой попытки
 		req.Body = io.NopCloser(bytes.NewReader(body))
 
 		resp, err = h.client.Do(req.WithContext(ctx))
@@ -109,6 +128,7 @@ func (h *LoadBalancerHandler) executeWithRetries(ctx context.Context, req *http.
 			}
 		}
 
+		// Экспоненциальная задержка с добавлением случайного jitter
 		if i < maxRetries-1 {
 			backoff := time.Duration(i)*time.Second + time.Duration(rand.Intn(100))*time.Millisecond
 			select {
@@ -134,6 +154,8 @@ func (h *LoadBalancerHandler) executeWithRetries(ctx context.Context, req *http.
 	return resp, err
 }
 
+// copyResponse копирует ответ от бэкенда клиенту,
+// используя пул буферов для минимизации аллокаций памяти.
 func (h *LoadBalancerHandler) copyResponse(w http.ResponseWriter, resp *http.Response) {
 	for k, v := range resp.Header {
 		w.Header()[k] = v
@@ -147,6 +169,7 @@ func (h *LoadBalancerHandler) copyResponse(w http.ResponseWriter, resp *http.Res
 	io.CopyBuffer(w, resp.Body, buf)
 }
 
+// handleError обрабатывает ошибки, логируя их и возвращая клиенту соответствующий HTTP-статус.
 func (h *LoadBalancerHandler) handleError(w http.ResponseWriter, r *http.Request, err error, statusCode int, startTime time.Time) {
 	h.logger.Error("Request processing failed",
 		zap.String("path", r.URL.Path),
@@ -158,6 +181,8 @@ func (h *LoadBalancerHandler) handleError(w http.ResponseWriter, r *http.Request
 
 //---------helpers----------------
 
+// buildTargetURL конструирует полный URL для запроса к бэкенду,
+// сохраняя путь и параметры исходного запроса.
 func buildTargetURL(baseURL, path, query string) string {
 	var sb strings.Builder
 	sb.WriteString(baseURL)
@@ -169,6 +194,8 @@ func buildTargetURL(baseURL, path, query string) string {
 	return sb.String()
 }
 
+// cloneRequest создает копию исходного запроса для отправки к бэкенду,
+// включая клонирование тела запроса и заголовков.
 func cloneRequest(r *http.Request, targetURL string) (*http.Request, []byte, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

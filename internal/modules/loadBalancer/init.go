@@ -7,12 +7,18 @@ import (
 	"lb/internal/modules/healthchecker"
 )
 
+// RouteConfig определяет конфигурацию маршрута для балансировщика нагрузки.
+// Содержит путь (endpoint) и список бэкендов, которые могут его обслуживать.
 type RouteConfig struct {
 	Path     string
 	Backends []models.Backend
 }
 
-// создает мапу path -> LoadBalancerHandler
+// CreateLoadBalancers инициализирует набор балансировщиков нагрузки для каждого маршрута.
+// Возвращает:
+//
+//	map[string]*LoadBalancerHandler: готовые к использованию обработчики,
+//	где ключ - это путь, а значение - соответствующий LoadBalancerHandler.
 func CreateLoadBalancers(routes []RouteConfig,
 	registry *backends.BackendRegistry,
 	healthChecker *healthchecker.HealthChecker,
@@ -31,6 +37,13 @@ func CreateLoadBalancers(routes []RouteConfig,
 	return lbMap
 }
 
+// setupHealthAndRegister регистрирует бэкенды в системе и настраивает подписку на их статусы.
+// Для каждого бэкенда:
+// 1. Добавляет его в health checker для мониторинга
+// 2. Регистрирует в общем реестре
+// 3. Создает подписку на изменения состояния
+//
+// Возвращает список каналов для получения обновлений о состоянии бэкендов.
 func setupHealthAndRegister(backendsConfig []models.Backend, registry *backends.BackendRegistry, healthChecker *healthchecker.HealthChecker) []<-chan models.BackendStatus {
 	var healthChannels []<-chan models.BackendStatus
 
@@ -45,6 +58,9 @@ func setupHealthAndRegister(backendsConfig []models.Backend, registry *backends.
 	return healthChannels
 }
 
+// registerBackend выполняет полную регистрацию бэкенда в системе:
+// 1. Добавляет в health checker для регулярных проверок
+// 2. Регистрирует в общем реестре бэкендов
 func registerBackend(backend *models.Backend, registry *backends.BackendRegistry, healthChecker *healthchecker.HealthChecker) {
 	healthChecker.AddBackend(backend)
 	registry.AddBackendToRegistry(*backend)

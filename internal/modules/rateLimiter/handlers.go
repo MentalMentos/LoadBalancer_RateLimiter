@@ -6,6 +6,8 @@ import (
 	"net/http"
 )
 
+// ClientsHandler обрабатывает HTTP запросы для управления клиентами rate limiter'а.
+// Поддерживает GET (получение списка), POST (добавление) и DELETE (удаление) методы.
 func (tb *TokenBucketLimiter) ClientsHandler(w http.ResponseWriter, r *http.Request) {
 	tb.logger.Info("Received request for ClientsHandler", zap.String("method", r.Method), zap.String("url", r.URL.String()))
 	switch r.Method {
@@ -21,6 +23,7 @@ func (tb *TokenBucketLimiter) ClientsHandler(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// handleGetClients возвращает текущий список клиентов в формате JSON
 func (tb *TokenBucketLimiter) handleGetClients(w http.ResponseWriter) {
 	tb.logger.Info("Handling GET request for clients")
 	clients := tb.ListClients()
@@ -34,6 +37,8 @@ func (tb *TokenBucketLimiter) handleGetClients(w http.ResponseWriter) {
 	tb.logger.Info("Successfully returned clients list", zap.Int("clients_count", len(clients)))
 }
 
+// handleCreateClient добавляет нового клиента на основе переданной конфигурации
+// Валидирует обязательное поле IP адреса
 func (tb *TokenBucketLimiter) handleCreateClient(w http.ResponseWriter, r *http.Request) {
 	tb.logger.Info("Handling POST request to create a client", zap.String("url", r.URL.String()))
 	var config ClientConfig
@@ -60,6 +65,8 @@ func (tb *TokenBucketLimiter) handleCreateClient(w http.ResponseWriter, r *http.
 	tb.logger.Info("Successfully created new client", zap.String("client_ip", config.Ip))
 }
 
+// handleDeleteClient удаляет клиента по его IP адресу
+// IP адрес должен быть передан в query параметре client_ip
 func (tb *TokenBucketLimiter) handleDeleteClient(w http.ResponseWriter, r *http.Request) {
 	clientIp := r.URL.Query().Get("client_ip")
 	if clientIp == "" {
