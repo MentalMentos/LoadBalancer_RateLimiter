@@ -67,3 +67,8 @@ curl -X POST -H "Content-Type: application/json" -d '{
 ```sh
 curl -X GET http://localhost:8080/clients
 ```
+
+#Тестирование apache bench
+```sh
+ab -n 100000 -c 100 -t 30 http://localhost:8080/clients
+```
