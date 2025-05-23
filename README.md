@@ -45,6 +45,7 @@ git clone https://github.com/MentalMentos/LoadBalancer_RateLimiter.git
 
 Для запуска проекта:
 ```golang
+cd LoadBalancer_RateLimiter
 go run cmd/app/main.go
 ```
 ### Установка зависимостей
@@ -65,4 +66,9 @@ curl -X POST -H "Content-Type: application/json" -d '{
 #Пример get запроса
 ```sh
 curl -X GET http://localhost:8080/clients
+```
+
+#Тестирование apache bench
+```sh
+ab -n 100000 -c 100 -t 30 http://localhost:8080/clients
 ```
