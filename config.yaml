@@ -4,7 +4,7 @@ LoadBalancer:
 RateLimiter:
   type: "token_bucket"
   limit: 100         # Максимальное количество запросов
-  tokenbucket: "30s" # Интервал пополнения токенов (в секундах)
+  tokenbucket: "30s" # Интервал пополнения токенов
 
 healthchecker:
   healthyserver_freq: "10s"    # Проверка здоровых серверов каждые 10 секунд
@@ -16,7 +16,7 @@ Routes:
       - url: "http://localhost:8081"
         health: "/health"
       - url: "http://localhost:8082"
-        health: "/status"
+        health: "/health"
 
   - path: "/static"
     backends:
