@@ -38,7 +38,7 @@ func TestLoadBalancerIntegration(t *testing.T) {
 	testConfig := &config.Config{
 		Routes: []config.Route{
 			{
-				Path: "/api",
+				Path: "/clients",
 				Backends: []config.Backend{
 					{URL: backend1.URL, Health: "/health"},
 					{URL: backend2.URL, Health: "/health"},
@@ -139,7 +139,7 @@ func TestLoadBalancerIntegration(t *testing.T) {
 
 		successCount := 0
 		for i := 0; i < 15; i++ {
-			resp, err := http.Get(testServer.URL + "/api")
+			resp, err := http.Get(testServer.URL + "/clients")
 			if err == nil && resp.StatusCode == http.StatusOK {
 				successCount++
 				resp.Body.Close()
@@ -159,7 +159,7 @@ func TestLoadBalancerIntegration(t *testing.T) {
 
 		// Делаем несколько запросов - все должны идти на backend2
 		for i := 0; i < 10; i++ {
-			resp, err := http.Get(testServer.URL + "/api")
+			resp, err := http.Get(testServer.URL + "/clients")
 			require.NoError(t, err)
 
 			var body bytes.Buffer
@@ -239,7 +239,7 @@ func TestAppInitialization(t *testing.T) {
 		time.Sleep(1 * time.Second)
 
 		// Проверяем что сервер запустился
-		resp, err := http.Get("http://localhost:8080/test")
+		resp, err := http.Get("http://localhost:8080/clients")
 		if err == nil {
 			defer resp.Body.Close()
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode,

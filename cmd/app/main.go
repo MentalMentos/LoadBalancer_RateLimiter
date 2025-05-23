@@ -7,3 +7,5 @@ import (
 func main() {
 	app.NewApp("config")
 }
+
+//curl "8080"
