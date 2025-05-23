@@ -42,8 +42,16 @@
 ```sh
 git clone https://github.com/MentalMentos/LoadBalancer_RateLimiter.git
 ```
+Для запуска проекта через Docker:
+```sh
+docker-compose up -d
+```
+Для остановки:
+```sh
+docker-compose down
+```
 
-Для запуска проекта:
+Для запуска проекта(без докера):
 ```golang
 cd LoadBalancer_RateLimiter
 go run cmd/app/main.go
