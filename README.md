@@ -1,5 +1,4 @@
-# "Load Balancer/Rate Limiter" на Golang разработчика
-
+# Load Balancer/Rate Limiter
 ## Выбранные подходы
 - [load balancer algorithm: Round Robin](#RoundRobin)
 - [rate limiter algorithm: Token Bucket](#TokenBucket)
